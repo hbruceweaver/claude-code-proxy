@@ -15,6 +15,7 @@ from src.conversion.response_converter import (
     convert_openai_streaming_to_claude_with_cancellation,
 )
 from src.core.model_manager import model_manager
+from src.utils.exa_search import process_websearch_via_exa
 
 router = APIRouter()
 
@@ -47,15 +48,77 @@ async def validate_api_key(x_api_key: Optional[str] = Header(None), authorizatio
             detail="Invalid API key. Please provide a valid Anthropic API key."
         )
 
+async def intercept_websearch_in_request(request: ClaudeMessagesRequest, logger) -> ClaudeMessagesRequest:
+    """
+    Check if the request contains WebSearch tool results that haven't been executed yet.
+    If the previous message was a tool_use for WebSearch, execute it via Exa and inject results.
+    """
+    logger.info(f"Checking for WebSearch interception, message count: {len(request.messages)}")
+    
+    # Check if there are messages with tool_use for WebSearch waiting for results
+    if len(request.messages) >= 2:
+        # Check the last assistant message for WebSearch tool_use
+        second_last = request.messages[-2]
+        last = request.messages[-1]
+        
+        logger.info(f"Second last role: {second_last.role}, Last role: {last.role}")
+        logger.info(f"Second last content type: {type(second_last.content)}, Last content type: {type(last.content)}")
+        
+        if (second_last.role == "assistant" and 
+            last.role == "user" and 
+            isinstance(second_last.content, list) and
+            isinstance(last.content, list)):
+            
+            # Check if assistant message has WebSearch tool_use
+            for assistant_block in second_last.content:
+                logger.info(f"Assistant block type: {getattr(assistant_block, 'type', 'no type')}, name: {getattr(assistant_block, 'name', 'no name')}")
+                if (hasattr(assistant_block, 'type') and 
+                    assistant_block.type == "tool_use" and 
+                    assistant_block.name == "WebSearch"):
+                    
+                    # Check if user message has corresponding tool_result placeholder
+                    for user_block in last.content:
+                        if (hasattr(user_block, 'type') and 
+                            user_block.type == "tool_result" and
+                            user_block.tool_use_id == assistant_block.id):
+                            
+                            # Check if the content contains an error or is a placeholder
+                            current_content = getattr(user_block, 'content', '')
+                            if isinstance(current_content, str):
+                                # If it contains an API error or is a failed search, replace it
+                                if 'API Error' in current_content or 'Did 0 searches' in current_content or 'Web search results' in current_content:
+                                    logger.info(f"Intercepting WebSearch execution with input: {assistant_block.input}")
+                                    
+                                    try:
+                                        # Execute the search via Exa
+                                        search_results = await process_websearch_via_exa(assistant_block.input)
+                                        
+                                        # Format results as JSON string for the tool result
+                                        user_block.content = json.dumps(search_results, ensure_ascii=False)
+                                        logger.info(f"Injected Exa search results into tool_result")
+                                        
+                                    except Exception as e:
+                                        logger.error(f"Error executing WebSearch via Exa: {e}")
+                                        # Inject error message if search fails
+                                        user_block.content = json.dumps({
+                                            "error": f"Search failed: {str(e)}",
+                                            "results": []
+                                        })
+    
+    return request
+
 @router.post("/v1/messages")
 async def create_message(request: ClaudeMessagesRequest, http_request: Request, _: None = Depends(validate_api_key)):
     try:
-        logger.debug(
+        logger.info(
             f"Processing Claude request: model={request.model}, stream={request.stream}"
         )
         
         # Debug: Log the full incoming Claude request
         logger.info(f"=== INCOMING CLAUDE REQUEST ===\n{request.model_dump_json(indent=2)}")
+        
+        # Intercept WebSearch tool results and execute via Exa if needed
+        request = await intercept_websearch_in_request(request, logger)
 
         # Generate unique request ID for cancellation tracking
         request_id = str(uuid.uuid4())
