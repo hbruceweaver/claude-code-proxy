@@ -13,7 +13,7 @@ class OpenAIClient:
         self.api_key = api_key
         self.base_url = base_url
         
-        # Detect if using Azure and instantiate the appropriate client
+        # Detect if using Azure ancand instantiate the appropriate client
         if api_version:
             self.client = AsyncAzureOpenAI(
                 api_key=api_key,
@@ -31,6 +31,12 @@ class OpenAIClient:
     
     async def create_chat_completion(self, request: Dict[str, Any], request_id: Optional[str] = None) -> Dict[str, Any]:
         """Send chat completion to OpenAI API with cancellation support."""
+        import json
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Log the full OpenAI request
+        logger.info(f"=== OPENAI API REQUEST (blocking) ===\n{json.dumps(request, indent=2)}")
         
         # Create cancellation token if request_id provided
         if request_id:
@@ -67,6 +73,9 @@ class OpenAIClient:
                 completion = await completion_task
             else:
                 completion = await completion_task
+            
+            # Debug: Log the full OpenAI response
+            logger.info(f"=== OPENAI API RESPONSE (blocking) ===\n{json.dumps(completion.model_dump(), indent=2)}")
             
             # Convert to dict format that matches the original interface
             return completion.model_dump()
@@ -125,6 +134,7 @@ class OpenAIClient:
         except RateLimitError as e:
             raise HTTPException(status_code=429, detail=self.classify_openai_error(str(e)))
         except BadRequestError as e:
+            # For streaming, tool validation errors are harder to handle gracefully, so just return better error message
             raise HTTPException(status_code=400, detail=self.classify_openai_error(str(e)))
         except APIError as e:
             status_code = getattr(e, 'status_code', 500)
@@ -147,7 +157,7 @@ class OpenAIClient:
         
         # API key issues
         if "invalid_api_key" in error_str or "unauthorized" in error_str:
-            return "Invalid API key. Please check your OPENAI_API_KEY configuration."
+            return "Invalid API key. Please check your GROQ_API_KEY_KIMI or OPENAI_API_KEY configuration."
         
         # Rate limiting
         if "rate_limit" in error_str or "quota" in error_str:

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, Header, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime
 import uuid
+import json
 from typing import Optional
 
 from src.core.config import config
@@ -52,12 +53,18 @@ async def create_message(request: ClaudeMessagesRequest, http_request: Request, 
         logger.debug(
             f"Processing Claude request: model={request.model}, stream={request.stream}"
         )
+        
+        # Debug: Log the full incoming Claude request
+        logger.info(f"=== INCOMING CLAUDE REQUEST ===\n{request.model_dump_json(indent=2)}")
 
         # Generate unique request ID for cancellation tracking
         request_id = str(uuid.uuid4())
 
         # Convert Claude request to OpenAI format
         openai_request = convert_claude_to_openai(request, model_manager)
+        
+        # Debug: Log the converted OpenAI request
+        logger.info(f"=== CONVERTED OPENAI REQUEST ===\n{json.dumps(openai_request, indent=2)}")
 
         # Check if client disconnected before processing
         if await http_request.is_disconnected():
@@ -103,9 +110,17 @@ async def create_message(request: ClaudeMessagesRequest, http_request: Request, 
             openai_response = await openai_client.create_chat_completion(
                 openai_request, request_id
             )
+            
+            # Debug: Log the converted OpenAI response before Claude conversion
+            logger.info(f"=== OPENAI RESPONSE BEFORE CONVERSION ===\n{json.dumps(openai_response, indent=2)}")
+            
             claude_response = convert_openai_to_claude_response(
                 openai_response, request
             )
+            
+            # Debug: Log the final Claude response
+            logger.info(f"=== FINAL CLAUDE RESPONSE ===\n{json.dumps(claude_response, indent=2)}")
+            
             return claude_response
     except HTTPException:
         raise
@@ -199,7 +214,7 @@ async def test_connection():
                 "message": str(e),
                 "timestamp": datetime.now().isoformat(),
                 "suggestions": [
-                    "Check your OPENAI_API_KEY is valid",
+                    "Check your GROQ_API_KEY_KIMI (or OPENAI_API_KEY) is valid",
                     "Verify your API key has the necessary permissions",
                     "Check if you have reached rate limits",
                 ],

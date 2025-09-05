@@ -4,9 +4,10 @@ import sys
 # Configuration
 class Config:
     def __init__(self):
-        self.openai_api_key = os.environ.get("OPENAI_API_KEY")
+        # Try GROQ_API_KEY_KIMI first, fallback to OPENAI_API_KEY for compatibility
+        self.openai_api_key = os.environ.get("GROQ_API_KEY_KIMI") or os.environ.get("OPENAI_API_KEY")
         if not self.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
+            raise ValueError("GROQ_API_KEY_KIMI or OPENAI_API_KEY not found in environment variables")
         
         # Add Anthropic API key for client validation
         self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")

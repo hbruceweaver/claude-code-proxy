@@ -16,7 +16,7 @@ def main():
         print("Usage: python src/main.py")
         print("")
         print("Required environment variables:")
-        print("  OPENAI_API_KEY - Your OpenAI API key")
+        print("  GROQ_API_KEY_KIMI - Your Groq API key (or OPENAI_API_KEY for other providers)")
         print("")
         print("Optional environment variables:")
         print("  ANTHROPIC_API_KEY - Expected Anthropic API key for client validation")
